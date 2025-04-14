@@ -1,0 +1,27 @@
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.poetry]
+name = "fastapi-cars-api-poc"
+version = "0.1.0"
+description = "A FastAPI demo for managing cars"
+authors = ["Your Name <your.email@example.com>"]
+packages = [{ include = "src" }]
+#package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.109.2"
+uvicorn = "^0.27.1"
+pydantic = "^2.6.1"
+pydantic-settings = "^2.2.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+black = "^24.1.1"
+isort = "^5.13.2"
+flake8 = "^7.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
