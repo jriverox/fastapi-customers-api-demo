@@ -10,7 +10,7 @@ db-down:
 	docker compose down
 
 run:
-	poetry run uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
+	poetry run uvicorn src.main:app --reload --host 127.0.0.1 --port 8080
 
 test:
 	poetry run pytest

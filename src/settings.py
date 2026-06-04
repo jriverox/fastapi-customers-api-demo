@@ -11,5 +11,10 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     API_V1_STR: str = "/api/v1"
 
+    # OTel — obligatorias, sin default (ValidationError al arranque si faltan)
+    OTEL_SERVICE_NAME: str
+    OTEL_ENVIRONMENT: str
+    OTEL_SERVICE_VERSION: str
+
 
 settings = Settings() 

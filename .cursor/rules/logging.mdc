@@ -1,0 +1,160 @@
+---
+description: Estándares de logging para servicios Python de Simetrik — OpenTelemetry SDK + Datadog Logs
+globs: **/*.py
+---
+
+# Logging — Estándar Simetrik
+
+**Stack:** Python `logging` estándar + OpenTelemetry SDK · Backend: Datadog Logs
+
+## Setup (obligatorio antes de cualquier lógica de negocio)
+
+```python
+# FastAPI
+from observability.setup import setup_observability
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+setup_observability()
+FastAPIInstrumentor.instrument()   # DESPUÉS de setup, ANTES de app = FastAPI()
+
+# Django
+from observability.setup import setup_observability
+from opentelemetry.instrumentation.django import DjangoInstrumentor
+setup_observability()
+DjangoInstrumentor().instrument()
+
+# Worker
+from observability.setup import setup_observability
+setup_observability()   # enable_metrics=True solo si el worker emite métricas custom
+
+# En cada módulo
+import logging
+logger = logging.getLogger(__name__)   # forma estándar — NO wrappers locales
+```
+
+**Variables obligatorias** (`KeyError` al arranque si faltan):
+- `OTEL_SERVICE_NAME`: `{project}-{service}` — e.g. `lz-landing-zone-engine`
+- `OTEL_ENVIRONMENT`: `production` | `staging` | `development`
+- `OTEL_SERVICE_VERSION`: semver — e.g. `1.34.1`
+
+**Prohibiciones:** nunca `logging.basicConfig()` · nunca `opentelemetry-instrument` en Dockerfile
+
+## Reglas críticas
+
+| Regla | ✅ Correcto | ❌ Incorrecto |
+|---|---|---|
+| Logger | `logging.getLogger(__name__)` | Wrappers locales, logger global |
+| Mensaje | `"connection_sync_started"` | `f"Sync started for {workspace_id}"` |
+| Contexto | `extra={"workspace_id": str(ws)}` | Variable embebida en el mensaje |
+| Errores | `logger.error("...", exc_info=True)` | `logger.error("...")` sin `exc_info` |
+| Campos extra | `extra={"user_name": "x"}` | `extra={"name": "x"}` — campo reservado |
+| Retry intento | Métrica `retry_counter.add(...)` | `logger.warning("Failed attempt 1/5")` |
+| Hot path loop | Log de resumen después del loop | `logger.info(...)` por cada elemento |
+
+**Campos prohibidos en `extra={}`:** `name`, `message`, `msg`, `levelname`, `filename`, `module`, `funcName`
+
+## Niveles de severidad
+
+| Nivel | Cuándo |
+|---|---|
+| `DEBUG` | Variables, estado interno — deshabilitado en producción |
+| `INFO` | Inicio/fin de operaciones de negocio, cambios de estado |
+| `WARNING` | Anomalías recuperables: retries exitosos, fallbacks |
+| `ERROR` | Fallo que impide completar la operación — DEBE incluir `exc_info=True` |
+| `CRITICAL` | Compromete la estabilidad del sistema |
+
+## Contexto mínimo por operación
+
+`workspace_id` obligatorio en operaciones tenant-específicas. Contexto adicional:
+- Archivo: `workspace_id`, `file_id`, `file_type`
+- ERP: `workspace_id`, `entry_id`, `model_id`
+- HTTP saliente: `workspace_id`, `target_service`, `operation_key`
+- Job async: `workspace_id`, `job_id`, `task_type`
+- Job de infraestructura global: `job_name`, `job_type` (sin workspace_id)
+
+## Patrones de implementación
+
+```python
+import logging
+from opentelemetry import trace
+
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
+
+# Evento de negocio
+logger.info("connection_sync_started", extra={
+    "workspace_id": str(workspace_id),
+    "connection_id": str(connection_id),
+})
+
+# Error con stack trace — obligatorio exc_info=True
+try:
+    result = _do_operation(workspace_id)
+except Exception:
+    logger.error("operation_failed", extra={
+        "workspace_id": str(workspace_id),
+        "target_service": "landing-zone",
+    }, exc_info=True)
+    raise
+
+# Retry — política de ruido cero
+# intento fallido → métrica; fallo definitivo → logger.error
+logger.error("operation_failed_after_max_retries", extra={
+    "workspace_id": str(workspace_id),
+    "max_attempts": max_retries,
+}, exc_info=True)
+
+# Background task — crear span para que trace_id esté presente en logs
+with tracer.start_as_current_span("background_task"):
+    logger.info("task_started", extra={
+        "workspace_id": str(workspace_id),
+        "task_type": "reconciliation",
+    })
+
+# Auditoría — retención 7 años
+logger.info("audit_event", extra={
+    "workspace_id": str(workspace_id),
+    "user_id": user_id,
+    "action": action,
+    "resource_type": resource_type,
+    "resource_id": resource_id,
+    "outcome": "success",   # "success" | "failure" | "denied"
+    "audit": True,
+})
+```
+
+## Anti-patrones
+
+| ❌ Incorrecto | Por qué falla | ✅ Reemplazo |
+|---|---|---|
+| `logger.info(f"Processing workspace {id}")` | Datos no indexables en Datadog | `logger.info("processing_started", extra={"workspace_id": str(id)})` |
+| `logger.error(f"Error: {e}")` | Sin stack trace — diagnóstico imposible | `logger.error("op_failed", extra={...}, exc_info=True)` |
+| `logger.info("sync_completed")` sin workspace | No filtra por tenant en Datadog | `logger.info("sync_completed", extra={"workspace_id": str(ws)})` |
+| `logger.warning("Failed attempt 1/5")` | Genera alarmas falsas, ruido operativo | Intento fallido → métrica; fallo final → `logger.error(...)` |
+
+## Seguridad — NUNCA en logs
+
+passwords, API keys, tokens, JWTs, emails completos, IPs de usuario, SSN/CURP, tarjetas completas, payloads de requests.
+
+| Categoría | Técnica |
+|---|---|
+| Email | Hash SHA-256 → `user_email_hash: "sha256:a1b2c3..."` |
+| Tarjeta | BIN + truncamiento → `"411111****1111"` |
+| Token | Primeros 8 chars → `"sk_live_ab12..."` |
+
+## Hot paths — alta frecuencia
+
+Máximo 1 log informativo por 1,000 ejecuciones. Errores: nunca samplear.
+
+```python
+# ❌ Prohibido en hot path
+for record in records:
+    logger.info("record_validated", extra={"record_id": record.id})
+
+# ✅ Log agregado al final
+failed = [r.id for r in records if not validate(r)]
+logger.info("bulk_validation_completed", extra={
+    "workspace_id": str(workspace_id),
+    "total": len(records),
+    "failed": len(failed),
+})
+```

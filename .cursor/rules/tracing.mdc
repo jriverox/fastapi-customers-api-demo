@@ -1,0 +1,212 @@
+---
+description: Estándares de tracing e instrumentación para servicios Python de Simetrik — OpenTelemetry SDK + Datadog APM
+globs: **/*.py
+---
+
+# Tracing — Estándar Simetrik
+
+**Stack:** OpenTelemetry SDK Python · Backend: Datadog APM
+
+## Setup
+
+```python
+# FastAPI
+from observability.setup import setup_observability
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry import trace
+setup_observability()
+FastAPIInstrumentor.instrument()   # DESPUÉS de setup, ANTES de app = FastAPI()
+tracer = trace.get_tracer(__name__)
+
+# Django
+from observability.setup import setup_observability
+from opentelemetry.instrumentation.django import DjangoInstrumentor
+setup_observability()
+DjangoInstrumentor().instrument()
+
+# Worker
+from observability.setup import setup_observability
+setup_observability()
+# spans manuales con tracer.start_as_current_span(...)
+```
+
+**Variables obligatorias:** `OTEL_SERVICE_NAME` (`{project}-{service}`) · `OTEL_ENVIRONMENT` · `OTEL_SERVICE_VERSION`
+
+**Prohibiciones:** nunca `TracerProvider` manual · nunca `opentelemetry-instrument` en Dockerfile
+
+## Reglas críticas
+
+| Regla | ✅ Correcto | ❌ Incorrecto |
+|---|---|---|
+| Notación atributos | `workspace.id`, `erp.model.id` | `workspace_id`, `erpModelId` |
+| Tipo de valor | `str(workspace_id)` | `workspace_id` (int directo) |
+| workspace.id obligatorio | `span.set_attribute("workspace.id", str(ws))` | Span sin `workspace.id` |
+| PII | `user.id` (ID opaco) | `user.email`, `user.ssn` |
+| Máx atributos custom | ≤ 20 | Span con 30+ atributos |
+| Error — status | `span.set_status(StatusCode.ERROR, str(e))` | Sin `set_status` al fallar |
+| Error — stack trace | `span.record_exception(e)` | Solo log sin registrar en APM |
+| Worker sin span | `tracer.start_as_current_span(f"job.{job_type}")` | Logs sin `trace_id` |
+| Kafka/SQS productor | `inject(carrier)` antes de publicar | Sin propagación |
+| Kafka/SQS consumidor | `ctx = extract(carrier)` al consumir | Sin extracción |
+
+**Prohibidos en atributos de span:** `user.email`, `user.ip`, `user.ssn`, `http.url` con query params
+
+**Manejo de errores — los tres pasos son obligatorios:**
+```python
+except Exception as e:
+    span.set_attribute("status", "failure")
+    span.set_attribute("exception.type", type(e).__name__)
+    span.set_status(StatusCode.ERROR, str(e))   # sin esto: span exitoso en APM
+    span.record_exception(e)
+    raise
+```
+
+## Auto-instrumentación (sin código adicional)
+
+| Librería | Qué captura |
+|---|---|
+| FastAPI | Requests entrantes, rutas, status codes |
+| Django | Views, middleware, requests |
+| requests / httpx | Llamadas HTTP salientes + propagación W3C |
+| psycopg2 / SQLAlchemy | Queries DB |
+| botocore | Llamadas AWS |
+
+**Kafka y SQS:** NO tienen auto-instrumentación — usar `inject/extract` manual.
+
+## Enriquecimiento de spans — FastAPI (implementación completa)
+
+```python
+import logging
+from opentelemetry import trace
+from opentelemetry.trace import StatusCode
+
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
+
+@app.post("/api/v1/connections/{connection_id}/sync")
+async def sync_connection(connection_id: str, workspace_id: str, operation_key: str):
+    span = trace.get_current_span()
+    span.set_attribute("workspace.id", str(workspace_id))       # OBLIGATORIO — primer atributo
+    span.set_attribute("connection.id", str(connection_id))
+    span.set_attribute("operation.key", operation_key)
+
+    logger.info("connection_sync_started", extra={
+        "workspace_id": str(workspace_id),
+        "connection_id": str(connection_id),
+    })
+
+    try:
+        result = await _do_sync(connection_id, workspace_id)
+        span.set_attribute("sync.records_processed", str(result.count))
+        span.set_attribute("status", "success")
+        return result
+    except Exception as e:
+        span.set_attribute("status", "failure")
+        span.set_attribute("exception.type", type(e).__name__)
+        span.set_status(StatusCode.ERROR, str(e))
+        span.record_exception(e)
+        logger.error("connection_sync_failed", extra={
+            "workspace_id": str(workspace_id),
+            "connection_id": str(connection_id),
+        }, exc_info=True)
+        raise
+```
+
+## Span manual para operación de negocio
+
+```python
+from opentelemetry import trace
+from opentelemetry.trace import StatusCode
+tracer = trace.get_tracer(__name__)
+
+async def process_reconciliation(workspace_id: str, source_name: str):
+    with tracer.start_as_current_span("reconciliation.process") as span:
+        span.set_attribute("workspace.id", str(workspace_id))
+        span.set_attribute("source.name", source_name)
+        try:
+            records = await _fetch_records(workspace_id, source_name)
+            span.set_attribute("records.fetched", str(len(records)))
+            result = await _reconcile(records, workspace_id)
+            span.set_attribute("records.reconciled", str(result.reconciled))
+            span.set_attribute("status", "success")
+            return result
+        except Exception as e:
+            span.set_attribute("status", "failure")
+            span.set_attribute("exception.type", type(e).__name__)
+            span.set_status(StatusCode.ERROR, str(e))
+            span.record_exception(e)
+            raise
+```
+
+> Nombres de span en `dot.notation`: `reconciliation.process`, `file.validate`, `erp.entry.sync`
+
+## Worker / background task
+
+```python
+# Patrón 1 — tarea independiente (span raíz nuevo)
+def run_scheduled_job(workspace_id: str, job_type: str):
+    with tracer.start_as_current_span(f"job.{job_type}") as span:
+        span.set_attribute("workspace.id", str(workspace_id))
+        span.set_attribute("job.trigger", "scheduled")
+        # trace_id disponible en todos los logs dentro del bloque
+
+# Patrón 2 — continuar el trace del mensaje
+def process_queue_message(message: dict):
+    from opentelemetry.propagate import extract
+    carrier = message.get("traceparent_headers", {})
+    ctx = extract(carrier) if carrier else None
+    with tracer.start_as_current_span("queue.message.process", context=ctx) as span:
+        span.set_attribute("workspace.id", str(message.get("workspace_id", "unknown")))
+        span.set_attribute("message.type", str(message.get("type", "unknown")))
+```
+
+## Propagación en Kafka / SQS (manual)
+
+```python
+from opentelemetry.propagate import inject, extract
+
+# PRODUCTOR
+def publish_event(workspace_id: str, event_type: str, payload: dict):
+    carrier = {}
+    inject(carrier)   # inyecta traceparent header
+    message = {
+        "workspace_id": workspace_id,
+        "event_type": event_type,
+        "payload": payload,
+        "traceparent_headers": carrier,   # el consumidor usa extract() sobre este campo
+    }
+    _kafka_producer.send("lz-events", value=message)
+
+# CONSUMIDOR
+def consume_message(message: dict):
+    ctx = extract(message.get("traceparent_headers", {}))
+    with tracer.start_as_current_span("queue.message.consume", context=ctx) as span:
+        span.set_attribute("workspace.id", str(message.get("workspace_id", "unknown")))
+        span.set_attribute("event.type", str(message.get("event_type", "unknown")))
+```
+
+## Anti-patrones
+
+| ❌ Incorrecto | Por qué falla | ✅ Reemplazo |
+|---|---|---|
+| `span.set_attribute("workspace_id", id)` | Rompe queries APM — espera dot.notation | `span.set_attribute("workspace.id", str(id))` |
+| `span.set_attribute("workspace.id", 12345)` | OTel rechaza el valor en algunos backends | `span.set_attribute("workspace.id", str(12345))` |
+| Span sin `workspace.id` en op. de cliente | No se filtra por tenant en APM | Agregar siempre como primer atributo |
+| `span.set_attribute("user.email", email)` | PII indexada indefinidamente en APM | `span.set_attribute("user.id", user_id)` (ID opaco) |
+| Solo `span.record_exception(e)` sin `set_status` | Span aparece exitoso — falsos negativos | `set_status(ERROR)` + `record_exception(e)` |
+| Kafka/SQS sin `inject(carrier)` | Trace se corta — sin visibilidad end-to-end | `inject(carrier)` en productor; `extract(carrier)` en consumidor |
+| `CMD ["opentelemetry-instrument", "python", "main.py"]` | Doble inicialización — RuntimeError al arranque | `CMD ["python", "main.py"]` |
+
+## Queries Datadog
+
+**APM (usa `deployment.environment`):**
+```
+service:lz-landing-zone-engine @deployment.environment:production status:error
+@workspace.id:ws_12345
+```
+
+**Logs Explorer (usa `service.environment`):**
+```
+service:ur-web-backend @service.environment:production
+@extra.workspace_id:ws_12345
+```
