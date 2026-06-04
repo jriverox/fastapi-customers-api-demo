@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     OTEL_SERVICE_NAME: str
     OTEL_ENVIRONMENT: str
     OTEL_SERVICE_VERSION: str
-    OTEL_EXPORTER_OTLP_ENDPOINT: str = "http://localhost:4318"
+    OTEL_COLLECTOR_ENDPOINT: str = "http://localhost:4317"
 
 
 settings = Settings()
@@ -30,6 +30,6 @@ for _otel_var in (
     "OTEL_SERVICE_NAME",
     "OTEL_ENVIRONMENT",
     "OTEL_SERVICE_VERSION",
-    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_COLLECTOR_ENDPOINT",
 ):
-    os.environ[_otel_var] = getattr(settings, _otel_var) 
+    os.environ[_otel_var] = getattr(settings, _otel_var)
