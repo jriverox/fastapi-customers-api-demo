@@ -1,11 +1,13 @@
-from pydantic import BaseModel, Field
+from datetime import date
+
+from pydantic import BaseModel
 from typing import Optional
 
 
 class CustomerBase(BaseModel):
     first_name: str
     last_name: str
-    brithday: str
+    birthday: date
     document_id: str
     phone_number: str
     email: str
@@ -21,7 +23,7 @@ class CustomerCreate(CustomerBase):
 class CustomerUpdate(CustomerBase):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    brithday: Optional[str] = None
+    birthday: Optional[date] = None
     document_id: Optional[str] = None
     phone_number: Optional[str] = None
     email: Optional[str] = None

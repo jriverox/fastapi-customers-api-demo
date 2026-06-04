@@ -1,10 +1,16 @@
-.PHONY: install run test lint clean docker-build docker-run
+.PHONY: install run db-up db-down test lint clean docker-build docker-run
 
 install:
 	poetry install
 
+db-up:
+	docker compose up db -d
+
+db-down:
+	docker compose down
+
 run:
-	poetry run uvicorn src.main:app --reload --port 8001
+	poetry run uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 
 test:
 	poetry run pytest

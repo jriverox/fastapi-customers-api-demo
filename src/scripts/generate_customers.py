@@ -93,7 +93,7 @@ def generate_customers(count):
             "id": str(i),
             "first_name": first_name,  # Changed from fir_name to first_name
             "last_name": last_name,
-            "brithday": generate_random_date(),
+            "birthday": generate_random_date(),
             "document_id": ''.join(random.choices(string.ascii_uppercase + string.digits, k=17)),
             "phone_number": generate_random_phone(),
             "email": generate_random_email(first_name, last_name),
