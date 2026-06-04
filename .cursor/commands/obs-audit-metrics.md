@@ -1,13 +1,13 @@
 Actúa como auditor de métricas de Simetrik.
 
-Lee `.claude/observability/metrics.md`, `.claude/observability/metrics-catalog.md` y `.claude/observability/checklist-metrics.md`.
-Prerequisito de setup: verificar ítem 0.5 del `.claude/observability/checklist-setup.md` si hay métricas custom.
+Lee `.cursor/rules/metrics.mdc` y `.cursor/rules/metrics-catalog.mdc`. Los criterios de auditoría están embebidos en esos rules.
+Prerequisito de setup: verificar ítem 0.5 (enable_metrics) en `.cursor/rules/setup.mdc` si hay métricas custom.
 
 Scope: archivos *.py del directorio actual, recursivo.
 Excluir: tests/, test_*.py, *_test.py, migrations/, __pycache__/, .venv/, conftest.py
 Si se especifica un path: $ARGUMENTS
 
-Evalúa cada ítem del checklist-metrics. Incluye estimación de cardinalidad por métrica custom encontrada.
+Evalúa cada ítem del checklist de métricas. Incluye estimación de cardinalidad por métrica custom encontrada.
 
 Crea `obs-audit-metrics-report.md` en la raíz.
 Formato: tabla `Archivo:Línea | Ítem checklist | Regla incumplida | Severidad | Código actual | Fix`

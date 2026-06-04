@@ -1,7 +1,7 @@
 Actúa como ingeniero de observabilidad de Simetrik.
 
-Lee `.claude/observability/tracing.md` — única autoridad de implementación.
-No leas checklists ni re-audites; para verificación formal el dev usa `/obs-audit-tracing`.
+Lee `.cursor/rules/tracing.mdc` — única autoridad de implementación.
+No leas checklists ni re-audites; para verificación formal el dev usa `obs-audit-tracing`.
 
 ## Target (obligatorio)
 
@@ -13,6 +13,6 @@ Si $ARGUMENTS está vacío, detente y pide al usuario la ruta del archivo a modi
 
 Busca `obs-audit-tracing-report.md` en la raíz:
 - Si existe: implementa solo los hallazgos del target, en orden BLOQUEANTE → MEJORA → INFORMATIVO.
-- Si no existe: analiza el target contra `tracing.md` y luego implementa.
+- Si no existe: analiza el target contra `tracing.mdc` y luego implementa.
 
 Entrega el archivo modificado completo, listo para commit.

@@ -1,110 +1,88 @@
 ---
-description: Catálogo canónico de métricas por servicio — consultar antes de crear una métrica nueva para evitar duplicados
+description: Catálogo de métricas Simetrik — inventario oficial por servicio, SLOs y plantilla para métricas nuevas
 globs: **/*.py
+alwaysApply: false
 ---
 
-# Catálogo de Métricas — Inventario Canónico Simetrik
+## Propósito
 
-> Consultar este catálogo antes de crear cualquier métrica nueva.
-> Reglas de diseño: ver `metrics.mdc`. Setup: `setup_observability(enable_metrics=True)`.
+Consultar este catálogo antes de crear cualquier métrica nueva. Define qué métricas DEBEN existir por servicio y qué SLO alimentan.
+
+> ⚠️ **Estado:** En Revisión — Incompleto. Cada equipo debe validar y expandir su sección.
 
 ---
 
-## Métricas Cross-Service (auto-instrumentación OTel — NO crear manualmente)
+## Métricas Cross-Service (auto-instrumentadas — no crear manualmente)
 
 ### HTTP Layer
 
-| Métrica | Tipo | Unidad | Atributos |
+| Métrica | Tipo | Unidad | SLO |
 |---|---|---|---|
-| `http.server.request.duration` | Histogram | `s` | `http.method`, `http.route`, `http.status_code`, `service.name` |
-| `http.server.request.total` | Counter | `{request}` | `http.method`, `http.route`, `http.status_code`, `service.name` |
-| `http.server.errors.total` | Counter | `{error}` | `http.method`, `http.route`, `http.status_code`, `exception.type`, `service.name` |
-| `http.server.active_requests` | UpDownCounter | `{request}` | `http.method`, `service.name` |
+| `http.server.request.duration` | Histogram | `s` | Latency p99 < 500ms |
+| `http.server.request.total` | Counter | `{request}` | Availability 99.9% |
+| `http.server.errors.total` | Counter | `{error}` | Error rate < 0.1% |
+| `http.server.active_requests` | UpDownCounter | `{request}` | — |
 
 ### DB Layer
 
-| Métrica | Tipo | Unidad | Atributos |
-|---|---|---|---|
-| `db.operation.duration` | Histogram | `s` | `db.system`, `db.operation`, `service.name` |
-| `db.errors.total` | Counter | `{error}` | `db.system`, `db.operation`, `exception.type`, `service.name` |
+| Métrica | Tipo | Unidad |
+|---|---|---|
+| `db.operation.duration` | Histogram | `s` |
+| `db.errors.total` | Counter | `{error}` |
 
 ---
 
 ## lz — landing-zone-engine
 
-**Namespace:** `lz` | **Propietario:** Team Landing Zone
-
 | Métrica | Tipo | Unidad | Atributos | SLO |
 |---|---|---|---|---|
-| `lz.files.processed.total` | Counter | `{file}` | `workspace.id`, `file.type`, `status` | Correctness 99.5% (28d) |
+| `lz.files.processed.total` | Counter | `{file}` | `workspace.id`, `file.type`, `status` | Correctness 99.5% |
 | `lz.file.processing.duration` | Histogram | `s` | `workspace.id`, `file.type` | Latency p99 < 300s |
 | `lz.executions.active` | UpDownCounter | `{execution}` | `workspace.id` | Saturation |
 | `lz.connection.errors.total` | Counter | `{error}` | `workspace.id`, `exception.type`, `connection.type` | Error rate |
 | `lz.validation.errors.total` | Counter | `{error}` | `workspace.id`, `exception.type` | Correctness |
 
-**Cardinalidad estimada:**
-
-| Atributo | Valores |
-|---|---|
-| `workspace.id` | < 500 |
-| `file.type` | `csv`, `xlsx`, `json`, `xml`, `txt` (5-10) |
-| `status` | `success`, `failure`, `timeout` (3) |
-| `exception.type` | `timeout`, `validation_error`, `parse_error`, `auth_error` (5-30) |
-| `connection.type` | `sftp`, `api`, `s3`, `email` (5-10) |
-
 ---
 
 ## erp — erp-backend
-
-**Namespace:** `erp` | **Propietario:** Team ERP / Traductor Contable
 
 | Métrica | Tipo | Unidad | Atributos | SLO |
 |---|---|---|---|---|
 | `erp.entries.processed.total` | Counter | `{entry}` | `workspace.id`, `entry.type`, `status` | Correctness 99.5% |
 | `erp.model.validation.duration` | Histogram | `s` | `workspace.id`, `model.id` | Latency |
-| `erp.integration.calls.total` | Counter | `{call}` | `workspace.id`, `integration.name`, `status` | Availability |
-| `erp.entries.retry.total` | Counter | `{retry}` | `workspace.id`, `exception.type` | Salud del sistema |
+| `erp.integration.calls.total` | Counter | `{call}` | `workspace.id`, `integration.name`, `status` | Availability 99.9% |
+| `erp.entries.retry.total` | Counter | `{retry}` | `workspace.id`, `exception.type` | — |
 | `erp.actions.total` | Counter | `{action}` | `workspace.id`, `action.type`, `status` | — |
-
-> ⚠️ `model.id` en `erp.model.validation.duration` puede tener cardinalidad alta. Evaluar `model.type` (baja cardinalidad).
 
 ---
 
 ## ur — web-backend
 
-**Namespace:** `ur` | **Propietario:** Team UR / Conciliador
-
 | Métrica | Tipo | Unidad | Atributos | SLO |
 |---|---|---|---|---|
 | `ur.reconciliation.duration` | Histogram | `s` | `workspace.id` | Latency |
-| `ur.records.reconciled.total` | Counter | `{record}` | `workspace.id`, `status` | Correctness |
+| `ur.records.reconciled.total` | Counter | `{record}` | `workspace.id`, `status` | Correctness 99.5% |
 | `ur.executions.total` | Counter | `{execution}` | `workspace.id`, `status` | Availability 99.9% |
 | `ur.unreconciled.count` | ObservableGauge | `{record}` | `workspace.id` | Saturation |
 | `ur.source.sync.duration` | Histogram | `s` | `workspace.id`, `source.name` | Latency por fuente |
 
 ---
 
-## Plantilla para nuevo servicio
+## Gate de propiedad — antes de crear métrica nueva
 
-```markdown
-## {namespace} — {nombre-del-servicio}
+Responder las tres preguntas en el PR:
 
-**Namespace:** `{namespace}` | **Propietario:** Team {nombre}
-
-| Métrica | Tipo | Unidad | Atributos | SLO |
-|---|---|---|---|---|
-| `{namespace}.{entidad}.{accion}.total` | Counter | `{unit}` | `workspace.id`, `status` | {SLO name} |
-
-Gate de propiedad — responder en el PR:
 1. ¿Qué decisión operativa toma alguien con esta métrica?
-2. ¿Quién la consume? (SRE, Producto, Engineering)
+2. ¿Quién es el consumidor? (SRE, Producto, Engineering)
 3. ¿En qué dashboard o alerta aparecerá?
 
-Checklist antes de merge:
-- [ ] Gate respondido por escrito (3 preguntas)
-- [ ] Cardinalidad calculada y documentada (< 1,000 series sin aprobación)
-- [ ] Sin atributos prohibidos (user.id, email, url completa, exception.message)
-- [ ] Unidades siguen tabla UCUM de metrics.mdc
-- [ ] No duplica métricas existentes ni de auto-instrumentación
-- [ ] Revisado y aprobado por Cloud Observability
-```
+Si no puedes responder las tres, la métrica no debe crearse todavía.
+
+### Checklist antes de merge
+
+- [ ] Gate de propiedad respondido
+- [ ] Cardinalidad calculada — ninguna métrica supera 1,000 series sin aprobación de Cloud Observability
+- [ ] Sin atributos prohibidos (`user.id`, `email`, `url` completa, `exception.message`)
+- [ ] Unidades UCUM correctas
+- [ ] Dashboard o alerta asociada identificada
+- [ ] PR actualiza `.cursor/rules/metrics-catalog.mdc` y `.claude/observability/metrics-catalog.md`

@@ -1,162 +1,139 @@
 ---
-description: Estándares de métricas custom para servicios Python de Simetrik — OpenTelemetry SDK + Datadog Metrics
+description: Estándar de métricas Simetrik — naming, cardinalidad, tipos de instrumento y patrones copy-paste
 globs: **/*.py
+alwaysApply: false
 ---
 
-# Métricas — Estándar Simetrik
+## Prerequisitos
 
-**Stack:** OpenTelemetry SDK Python · Backend: Datadog Metrics
+`.cursor/rules/setup.mdc` con `setup_observability(enable_metrics=True)` al arranque.
+Consultar `.cursor/rules/metrics-catalog.mdc` antes de crear una métrica nueva.
 
-## Setup
+## Verificación
 
-```python
-from observability.setup import setup_observability
-setup_observability(enable_metrics=True)   # MeterProvider + PeriodicExportingMetricReader cada 60s
+Criterios pass/fail vía `obs-audit-metrics`. No usar en `obs-apply-metrics`.
 
-from opentelemetry import metrics as otel_metrics
-meter = otel_metrics.get_meter("lz")   # namespace del servicio (lz, erp, ur)
-# Las métricas NO son visibles en tiempo real — primer dato hasta 60s post-deploy
-```
+---
 
-## Criterio: ¿Métrica, Log o Trace?
+## Regla mnemotécnica
 
 ```
-¿Necesitas saber CUÁNTOS o qué tan RÁPIDO?   → Métrica
-¿Necesitas saber QUIÉN o POR QUÉ?            → Log
-¿Necesitas saber DÓNDE en el flujo?          → Trace
+¿CUÁNTOS o qué tan RÁPIDO?  →  Métrica
+¿QUIÉN o POR QUÉ?           →  Log
+¿DÓNDE en el flujo?         →  Trace
 ```
 
-## Tipos de instrumentos
+Las métricas no son visibles en tiempo real — el primer dato llega hasta 60s después del arranque.
+
+---
+
+## Tipos de instrumento
 
 | Instrumento | Cuándo usar |
-|---|---|
-| `Counter` | Contar eventos que solo incrementan (requests, errores, archivos) |
-| `UpDownCounter` | Recursos que se adquieren y liberan (conexiones activas, jobs) |
-| `Histogram` | Distribución de valores (latencia, tamaños) |
-| `ObservableGauge` | Valor instantáneo por polling (CPU%, queue depth) |
+|-------------|------------|
+| **Counter** | Conteo de eventos que solo incrementan |
+| **UpDownCounter** | Recursos que se adquieren y liberan |
+| **Histogram** | Distribución de valores (duración, tamaño) |
+| **ObservableGauge** | Valor instantáneo por polling (asíncrono) |
+
+---
 
 ## Naming convention
 
 **Formato:** `{namespace}.{entidad}.{accion}[.total]`
 
-| Regla | ✅ Correcto | ❌ Incorrecto |
-|---|---|---|
+| Regla | ✅ | ❌ |
+|-------|----|----|
 | Delimitador punto | `lz.files.processed.total` | `lz_files_processed_total` |
-| Lowercase | `http.server.request.duration` | `HTTP.Server.Duration` |
-| Unidad en metadata | `name="duration", unit="s"` | `name="duration_seconds"` |
-| Sufijo counters | `lz.files.processed.total` | `lz.files.processed.count` |
+| Counters con `.total` | `lz.files.processed.total` | `.count` |
+| Unidad en metadata | `unit="s"` | `name="duration_seconds"` |
+| Lowercase | `lz.file.processing.duration` | `LZ.File.Processing.Duration` |
 
-**Namespaces:** `lz` (landing-zone), `erp` (erp-backend), `ur` (web-backend), `http`, `db`, `messaging`
+**Unidades UCUM:** `s` (duración), `By` (bytes), `{request}`, `{error}`, `{file}`, `{record}`, `{message}`, `{execution}`, `{entry}`, `{call}`, `{retry}`, `{action}`, `1` (ratio).
 
-## Unidades UCUM — lista cerrada
+---
 
-| Tipo | Correcto | Prohibido |
-|---|---|---|
-| Duración | `s` | `ms`, `milliseconds`, `duration_seconds` |
-| Tamaño | `By` | `kb`, `mb`, `KB`, `MB` |
-| Requests | `{request}` | `{req}`, `requests` |
-| Errores | `{error}` | `{err}`, `{failure}`, `errors` |
-| Archivos | `{file}` | `{doc}`, `{item}`, `files` |
-| Registros | `{record}` | `{row}` |
-| Mensajes | `{message}` | `{msg}`, `{event}` |
-| Ratio | `1` | `%`, `percent`, `ratio` |
-| Ejecuciones | `{execution}` | `{job}`, `{run}` |
-| Entradas ERP | `{entry}` | `{item}` |
-| Llamadas API | `{call}` | `{invoke}`, `{api_call}` |
-| Reintentos | `{retry}` | `{attempt}`, `{retries}` |
-| Acciones usuario | `{action}` | `{op}`, `{operation}` |
-
-## Cardinalidad y costos
+## Cardinalidad
 
 ```
 Cardinalidad = |valores_attr_1| × |valores_attr_2| × ...
-Costo = Cardinalidad × Multiplicador
-  Counter / UpDownCounter / ObservableGauge → × 1
-  Histogram                                  → × 5-8
+Histogram multiplica × 5-8
 ```
 
-| Total | Acción |
-|---|---|
-| < 1,000 series | Proceder |
-| 1,000 – 5,000 | Validar con Cloud Observability antes de merge |
-| > 5,000 | Rediseñar antes de merge |
+| Cardinalidad | Acción |
+|-------------|--------|
+| < 1,000 | ✅ Proceder |
+| 1,000–5,000 | ⚠️ Validar con Cloud Observability |
+| > 5,000 | 🔴 Rediseñar |
 
-**Atributos PROHIBIDOS:** `user.id`, `request.id`, `trace.id`, `ip.address`, `email`, `url` completa, `file.name`, `exception.message`
+**Prohibidos:** `user.id`, `request.id`, `email`, `url` completa, `file.name`, `exception.message`.
 
-**Atributos permitidos:** `workspace.id` (< 500), `exception.type` (5-30), `status` (`success`|`failure`|`timeout`), `file.type` (5-10), `http.route` (parametrizada)
+---
 
-## Golden Signals — auto-instrumentación (NO crear manualmente)
+## Patrones copy-paste
 
-Verificar en Metrics Explorer antes de crear — duplicar genera costo doble.
-
-| Signal | Métrica | Tipo | Unidad |
-|---|---|---|---|
-| Latency | `http.server.request.duration` | Histogram | `s` |
-| Traffic | `http.server.request.total` | Counter | `{request}` |
-| Errors | `http.server.errors.total` | Counter | `{error}` |
-| Saturation | `http.server.active_requests` | UpDownCounter | `{request}` |
-
-## Buckets para histogramas — máximo 12, logarítmicos
-
-```python
-# HTTP (SLO: p99 < 500ms)
-boundaries_http = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
-# DB (SLO: p99 < 100ms)
-boundaries_db   = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
-# Jobs / workers (SLO: p99 < 5 min)
-boundaries_jobs = [1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 900.0, 1800.0, 3600.0]
-```
-
-## Implementación completa
+### Worker / Job Processor
 
 ```python
 import time
-import logging
 from opentelemetry import metrics as otel_metrics
 
-logger = logging.getLogger(__name__)
 meter = otel_metrics.get_meter("lz")
+files_processed = meter.create_counter("lz.files.processed.total", description="Total de archivos procesados", unit="{file}")
+processing_duration = meter.create_histogram("lz.file.processing.duration", description="Duración del procesamiento", unit="s")
+active_executions = meter.create_up_down_counter("lz.executions.active", description="Ejecuciones activas", unit="{execution}")
 
-files_processed = meter.create_counter(
-    name="lz.files.processed.total",
-    description="Total de archivos procesados",
-    unit="{file}",
-)
-processing_duration = meter.create_histogram(
-    name="lz.file.processing.duration",
-    description="Duración del procesamiento de archivos",
-    unit="s",
-)
-active_executions = meter.create_up_down_counter(
-    name="lz.executions.active",
-    description="Ejecuciones activas en este momento",
-    unit="{execution}",
-)
-
-
-def process_file(workspace_id: str, file_type: str, file_id: str) -> dict:
+def process_file(workspace_id: str, file_type: str, file_id: str):
     base_attrs = {"workspace.id": workspace_id, "file.type": file_type}
     active_executions.add(1, {"workspace.id": workspace_id})
     start = time.monotonic()
     try:
-        result = _do_process(file_id)
+        _do_process(file_id)
         files_processed.add(1, {**base_attrs, "status": "success"})
-        return result
     except Exception as e:
         files_processed.add(1, {**base_attrs, "status": "failure", "exception.type": type(e).__name__})
         raise
     finally:
         processing_duration.record(time.monotonic() - start, base_attrs)
-        active_executions.add(-1, {"workspace.id": workspace_id})   # mismos attrs que add(+1)
+        active_executions.add(-1, {"workspace.id": workspace_id})
 ```
+
+### UpDownCounter — atributos idénticos en +1 y -1
+
+```python
+active_connections = meter.create_up_down_counter("erp.connections.active", description="Conexiones activas", unit="{connection}")
+
+# CRÍTICO: mismos atributos en ambos add()
+attrs = {"workspace.id": workspace_id, "connection.type": connection_type}
+active_connections.add(1, attrs)   # acquire
+active_connections.add(-1, attrs)  # release
+```
+
+### SLO con error budget
+
+```python
+executions = meter.create_counter("ur.executions.total", description="Total de ejecuciones", unit="{execution}")
+
+try:
+    _do_reconciliation()
+    executions.add(1, {"workspace.id": workspace_id, "status": "success"})
+except Exception as e:
+    executions.add(1, {"workspace.id": workspace_id, "status": "failure", "exception.type": type(e).__name__})
+    raise
+
+# SLI en Datadog: sum(ur.executions.total{status:success}) / sum(ur.executions.total)
+```
+
+---
 
 ## Anti-patrones
 
-| ❌ Incorrecto | Por qué falla | ✅ Reemplazo |
-|---|---|---|
-| `counter.add(1, {"user.id": user_id})` | 100K+ series — costo explosivo | Usar `workspace.id` (< 500 valores) |
-| `name="duration_seconds"` | Rompe dashboards globales | `name="duration", unit="s"` |
-| `name="lz.files.processed.count"` | `.count` es ambiguo | `name="lz.files.processed.total"` |
-| `add(1, {"workspace.id": ws})` / `add(-1, {})` | UpDownCounter nunca baja a cero | Mismos atributos exactos en `add(1)` y `add(-1)` |
-| `"status": "ok"` | Rompe SLOs cross-service | `"status": "success"`, `"failure"`, `"timeout"` |
-| Duplicar `http.server.request.duration` | Series duplicadas, costo doble | Verificar auto-instrumentación primero |
+| ❌ Evitar | ✅ Hacer |
+|----------|---------|
+| `user.id` como label | Solo en logs/traces |
+| `unit="duration_seconds"` | `name="duration", unit="s"` |
+| Counters terminando en `.count` | Terminar en `.total` |
+| `add(1, attrs)` / `add(-1, {})` en UDC | Mismos atributos siempre |
+| Crear `http.server.*` manualmente | Verificar auto-instrumentación primero |
+| `"status": "ok"` | `"success"` / `"failure"` / `"timeout"` |
+| Métrica sin dashboard ni alerta | Solo crear si hay consumidor identificado |

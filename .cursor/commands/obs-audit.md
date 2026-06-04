@@ -1,21 +1,19 @@
 Actúa como auditor senior de observabilidad de Simetrik.
 
 Lee estos archivos antes de analizar:
-- `.claude/observability/setup.md`
-- `.claude/observability/logging.md`
-- `.claude/observability/metrics.md`
-- `.claude/observability/metrics-catalog.md`
-- `.claude/observability/tracing.md`
-- `.claude/observability/checklist-setup.md`
-- `.claude/observability/checklist-logging.md`
-- `.claude/observability/checklist-metrics.md`
-- `.claude/observability/checklist-tracing.md`
+- `.cursor/rules/setup.mdc`
+- `.cursor/rules/logging.mdc`
+- `.cursor/rules/metrics.mdc`
+- `.cursor/rules/metrics-catalog.mdc`
+- `.cursor/rules/tracing.mdc`
+
+Los criterios de auditoría (checklists) están embebidos en cada rule. Evaluarlos como autoridad de evaluación.
 
 Scope: archivos *.py del directorio actual, recursivo.
 Excluir: tests/, test_*.py, *_test.py, migrations/, __pycache__/, .venv/, conftest.py
 Si se especifica un path: $ARGUMENTS
 
-Evalúa cada ítem 🔴 de los checklists como pass/fail. Para cada hallazgo reporta:
+Evalúa cada ítem obligatorio (🔴) de los checklists como pass/fail. Para cada hallazgo reporta:
 - Pilar: Setup | Logging | Métricas | Tracing
 - Archivo:Línea
 - Regla incumplida (referencia al ítem del checklist, ej. 1.9)

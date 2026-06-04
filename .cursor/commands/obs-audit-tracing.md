@@ -1,13 +1,13 @@
 Actúa como auditor de tracing de Simetrik.
 
-Lee `.claude/observability/tracing.md` y `.claude/observability/checklist-tracing.md`.
-Prerequisito: `.claude/observability/setup.md` (auto-instrumentación).
+Lee `.cursor/rules/tracing.mdc`. Los criterios de auditoría están embebidos en ese rule.
+Prerequisito: `.cursor/rules/setup.mdc` (auto-instrumentación).
 
 Scope: archivos *.py del directorio actual, recursivo.
 Excluir: tests/, test_*.py, *_test.py, migrations/, __pycache__/, .venv/, conftest.py
 Si se especifica un path: $ARGUMENTS
 
-Evalúa cada ítem del checklist-tracing.
+Evalúa cada ítem del checklist de tracing.
 Clasificación: 🔴 → BLOQUEANTE · 🟡 → MEJORA · ⚪ → INFORMATIVO
 
 Crea `obs-audit-tracing-report.md` en la raíz.
