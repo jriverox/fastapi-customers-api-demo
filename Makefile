@@ -1,10 +1,13 @@
-.PHONY: install run test lint clean docker-build docker-run
+.PHONY: install run force-stop test lint clean docker-build docker-run
 
 install:
 	poetry install
 
 run:
 	poetry run uvicorn src.main:app --reload --port 8001
+
+force-stop:
+	-lsof -ti :8001 | xargs kill -9
 
 test:
 	poetry run pytest
